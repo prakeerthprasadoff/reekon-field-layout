@@ -47,7 +47,7 @@ The app finds the server by itself: it uses Metro's host, port 8787. Use one pho
 | `react-native-skia` + `reanimated` + `gesture-handler` | Pan and zoom run on the UI thread and drive Skia directly, so gestures never re-render React |
 | `zustand` | Per-job selectors: a reading re-renders only what shows it |
 | `expo-sqlite/kv-store` | Synchronous local persistence that works in Expo Go |
-| `expo-router`, `-haptics`, `-speech`, `-keep-awake`, `-crypto`, `-constants` | Navigation, field feedback, IDs, finding the server automatically |
+| `expo-router`, `-haptics`, `-speech`, `-keep-awake`, `-crypto`, `-constants`, `@expo/vector-icons` | Navigation, field feedback, IDs, finding the server automatically, icons |
 | `zod` | One schema validates every change on the device and the server |
 | `ws` + built-in `node:sqlite` | Two runtime packages, no native build, small Docker image |
 

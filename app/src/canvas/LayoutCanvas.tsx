@@ -70,6 +70,10 @@ interface Label {
   flagged: boolean;
   /** Part of a closure disagreement. */
   suspect?: boolean;
+  /** Screen-space direction to nudge the tag off the line (outside for walls, inside for openings). */
+  normal: Pt;
+  /** Real length the tag describes; used to hide tags that don't fit when zoomed out. */
+  spanMm: number;
 }
 
 export const LayoutCanvas = forwardRef<CanvasHandle, Props>(function LayoutCanvas(props, ref) {
@@ -280,11 +284,17 @@ export const LayoutCanvas = forwardRef<CanvasHandle, Props>(function LayoutCanva
         const k = targetKey(t);
         const suspect = suspectIds.has(e.id);
         const value = e.measurement ? formatLength(e.measurement.valueMm, unitSystem, e.measurement.precisionMm) : `≈ ${formatLength(e.lengthMm, unitSystem, 25.4)}`;
+        const mid = { x: (e.start.x + e.end.x) / 2, y: (e.start.y + e.end.y) / 2 };
+        // Outward normal: the tag sits just outside the wall instead of on top of the drawing.
+        const u = { x: e.end.x - e.start.x, y: e.end.y - e.start.y };
+        const len = Math.hypot(u.x, u.y) || 1;
+        let n = { x: u.y / len, y: -u.x / len };
+        if ((rs.centroid.x - mid.x) * n.x + (rs.centroid.y - mid.y) * n.y > 0) n = { x: -n.x, y: -n.y };
         out.push({
           key: k, target: t,
           // Suspect walls carry their number so they match the "Wall 1 vs Wall 3" banner.
           text: suspect ? `W${i + 1} · ${value}` : value,
-          at: { x: (e.start.x + e.end.x) / 2, y: (e.start.y + e.end.y) / 2 },
+          at: mid, normal: n, spanMm: e.lengthMm,
           measured: e.status === 'measured', flagged: openFlagKeys.has(k), suspect,
         });
       });
@@ -292,9 +302,8 @@ export const LayoutCanvas = forwardRef<CanvasHandle, Props>(function LayoutCanva
     features.forEach((rf) => {
       const f = rf.feature;
       const mid = { x: (rf.p0.x + rf.p1.x) / 2, y: (rf.p0.y + rf.p1.y) / 2 };
-      // Feature labels sit just inside the space so they don't collide with the wall label.
-      const inset = 'edgeId' in f.anchor ? 650 : 0;
-      const base = { x: mid.x + rf.inward.x * inset, y: mid.y + rf.inward.y * inset };
+      // Opening tags sit just inside the room; the wall's own tag sits outside.
+      const onWall = 'edgeId' in f.anchor;
       const dims = FEATURE_DIMS[f.type].filter((d) => d.key !== 'offset' || 'edgeId' in f.anchor);
       const main = dims.find((d) => d.key === 'width' || d.key === 'size' || d.key === 'length') ?? dims[0];
       const t: Target = { kind: 'feature', refId: f.id, dim: main.key };
@@ -305,7 +314,8 @@ export const LayoutCanvas = forwardRef<CanvasHandle, Props>(function LayoutCanva
       out.push({
         key: k, target: anyArmed ? armed! : t,
         text: `${FEATURE_LABEL[f.type]} ${sz.measured ? '' : '≈'}${formatLength(sz.mm, unitSystem, sz.measured ? 1.5875 : 25.4)}`,
-        at: base, measured: dims.every((d) => !!f.dims[d.key]), flagged,
+        at: mid, normal: onWall ? rf.inward : { x: 0, y: -1 }, spanMm: onWall ? sz.mm : 1e9,
+        measured: dims.every((d) => !!f.dims[d.key]), flagged,
       });
     });
     return out;
@@ -532,7 +542,7 @@ function DragHandle({ rf, edge, space, unitSystem, tx, ty, sc, dragging, onDrag,
 
   const mid = { x: (rf.p0.x + rf.p1.x) / 2, y: (rf.p0.y + rf.p1.y) / 2 };
   // Sit just outside the wall so it never hides under the wall's own length label.
-  const OUT = 62;
+  const OUT = 72;
   const out = { x: -rf.inward.x * OUT, y: -rf.inward.y * OUT };
   const style = useAnimatedStyle(() => ({
     transform: [
@@ -565,15 +575,21 @@ function FloatingLabel({ label, tx, ty, sc, armed, selected, recent, density, on
   armed: boolean; selected: boolean; recent: boolean; density: 'field' | 'office'; onPress?: () => void; onLongPress?: () => void;
 }) {
   const [w, setW] = useState(0);
-  const h = density === 'field' ? 52 : 36;
+  const field = density === 'field';
+  const h = armed ? (field ? 34 : 28) : field ? 28 : 24;
+  // Keep important tags no matter the zoom; others fade out when their wall is too short on screen.
+  const pinned = armed || selected || label.flagged || !!label.suspect || recent;
   const style = useAnimatedStyle(() => ({
+    opacity: pinned || w === 0 || label.spanMm * sc.value > w + 18 ? 1 : 0,
     transform: [
-      { translateX: label.at.x * sc.value + tx.value - w / 2 },
-      { translateY: label.at.y * sc.value + ty.value - h / 2 },
+      // Clear the line by half the tag's own size in the direction it's pushed, plus a gap.
+      { translateX: label.at.x * sc.value + tx.value + label.normal.x * (w / 2 + 6) - w / 2 },
+      { translateY: label.at.y * sc.value + ty.value + label.normal.y * (h / 2 + 6) - h / 2 },
     ],
   }));
-  const bg = armed ? color.accent : label.flagged ? color.danger : selected ? color.primary : label.measured ? color.card : color.muted;
-  const fg = armed ? color.onAccent : label.flagged || selected ? '#FFFFFF' : color.fg;
+  const quiet = !label.measured && !armed && !selected && !label.flagged && !label.suspect;
+  const bg = armed ? color.accent : label.flagged ? color.danger : selected ? color.primary : label.measured ? color.card : 'rgba(248,250,252,0.85)';
+  const fg = armed ? color.onAccent : label.flagged || selected ? '#FFFFFF' : quiet ? color.fgMuted : color.fg;
   return (
     <Animated.View style={[styles.labelWrap, style]} onLayout={(e) => setW(e.nativeEvent.layout.width)} pointerEvents="box-none">
       <Pressable
@@ -581,19 +597,21 @@ function FloatingLabel({ label, tx, ty, sc, armed, selected, recent, density, on
         onLongPress={onLongPress}
         delayLongPress={450}
         disabled={!onPress && !onLongPress}
-        hitSlop={density === 'field' ? 8 : 4}
+        // Small tag, big target: the touch area stays glove-sized.
+        hitSlop={field ? { top: 14, bottom: 14, left: 10, right: 10 } : 6}
         accessibilityRole="button"
         accessibilityLabel={`${label.text}${label.measured ? '' : ', not measured'}${label.flagged ? ', flagged' : ''}`}
         style={({ pressed }) => [
           styles.label,
-          { minHeight: h, backgroundColor: bg, borderStyle: label.measured || armed ? 'solid' : 'dashed', paddingHorizontal: density === 'field' ? 14 : 10 },
-          label.suspect && !armed && { borderColor: color.danger, borderWidth: 3 },
-          recent && { borderColor: color.accent, borderWidth: 3 },
+          { height: h, backgroundColor: bg, paddingHorizontal: field ? 8 : 6 },
+          quiet ? styles.labelQuiet : label.measured && !armed && !selected && !label.flagged ? styles.labelMeasured : null,
+          label.suspect && !armed && { borderColor: color.danger, borderWidth: 2 },
+          recent && { borderColor: color.accent, borderWidth: 2 },
           pressed && { opacity: 0.7 },
         ]}
       >
         {label.flagged && !armed ? <Text style={[styles.labelText, { color: fg }]}>⚑ </Text> : null}
-        <Text style={[styles.labelText, { color: fg, fontSize: density === 'field' ? 18 : 14 }]} numberOfLines={1}>{label.text}</Text>
+        <Text style={[styles.labelText, { color: fg, fontSize: field ? (armed ? 16 : 14) : 12, fontWeight: quiet ? '600' : '800' }]} numberOfLines={1}>{label.text}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -613,10 +631,11 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, overflow: 'hidden', backgroundColor: color.bg },
   labelWrap: { position: 'absolute', left: 0, top: 0 },
   label: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill,
-    borderWidth: 2, borderColor: color.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 6,
   },
-  labelText: { ...type.label, ...type.num },
+  labelMeasured: { borderWidth: 1, borderColor: color.border },
+  labelQuiet: { borderWidth: 0 },
+  labelText: { ...type.label, ...type.num, letterSpacing: 0 },
   readout: {
     position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: color.card, borderRadius: radius.md,
     paddingHorizontal: 16, paddingVertical: 8, borderWidth: 2, borderColor: color.accent,

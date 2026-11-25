@@ -158,10 +158,12 @@ function onServer(msg: ServerMsg) {
     case 'projects': {
       useSync.setState({ projects: msg.projects });
       saveJSON(K_PROJECTS, msg.projects);
-      // Drop local copies of deleted jobs the server has erased.
+      // The server lists every job it has (deleted ones included). A job it confirmed before
+      // (seq > 0) but no longer lists was erased there, so drop the local copy. Jobs created
+      // offline have never been confirmed (seq 0) and stay until their outbox syncs.
       const listed = new Set(msg.projects.map((p) => p.id));
       const docs = useSync.getState().docs;
-      const erased = Object.keys(docs).filter((pid) => docs[pid].view?.deleted && !listed.has(pid));
+      const erased = Object.keys(docs).filter((pid) => !listed.has(pid) && (docs[pid].seq > 0 || docs[pid].view?.deleted));
       if (erased.length) forgetDocs(erased);
       break;
     }

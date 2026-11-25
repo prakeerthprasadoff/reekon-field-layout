@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import * as Speech from 'expo-speech';
 import { useKeepAwake } from 'expo-keep-awake';
 import {
@@ -490,8 +491,8 @@ export default function FieldSpace() {
             <Text style={type.small}>{measuredCount} of {targets.length} measured</Text>
           )}
         </View>
-        <HistoryButton glyph="↶" label="Undo" onPress={undoLast} disabled={undoDepth === 0} />
-        <HistoryButton glyph="↷" label="Redo" onPress={redoLast} disabled={redoDepth === 0} />
+        <HistoryButton icon="undo" label="Undo" onPress={undoLast} disabled={undoDepth === 0} />
+        <HistoryButton icon="repeat" label="Redo" onPress={redoLast} disabled={redoDepth === 0} />
         <SyncPill />
       </View>
 
@@ -785,7 +786,8 @@ export default function FieldSpace() {
   );
 }
 
-function HistoryButton({ glyph, label, onPress, disabled }: { glyph: string; label: string; onPress: () => void; disabled: boolean }) {
+/** Font Awesome fa-undo / fa-repeat (its mirrored redo), the familiar pair from desktop apps. */
+function HistoryButton({ icon, label, onPress, disabled }: { icon: 'undo' | 'repeat'; label: string; onPress: () => void; disabled: boolean }) {
   return (
     <Pressable
       onPress={onPress}
@@ -796,7 +798,7 @@ function HistoryButton({ glyph, label, onPress, disabled }: { glyph: string; lab
       accessibilityState={{ disabled }}
       style={({ pressed }) => [styles.histBtn, disabled && styles.histOff, pressed && { backgroundColor: color.accentSoft }]}
     >
-      <Text style={[styles.histGlyph, disabled && { color: color.estimated }]}>{glyph}</Text>
+      <FontAwesome name={icon} size={24} color={disabled ? color.estimated : color.fg} />
     </Pressable>
   );
 }
@@ -886,7 +888,6 @@ const styles = StyleSheet.create({
     backgroundColor: color.card, alignItems: 'center', justifyContent: 'center',
   },
   histOff: { borderColor: color.hairline, backgroundColor: color.muted },
-  histGlyph: { fontSize: 30, lineHeight: 34, fontWeight: '900', color: color.fg },
   panel: { padding: sp.md, gap: sp.sm, backgroundColor: color.card, borderTopWidth: 1.5, borderTopColor: color.border },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: sp.sm },
   stepBtn: { width: touch.field + 8, paddingHorizontal: 0 },
