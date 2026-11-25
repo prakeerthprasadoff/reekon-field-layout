@@ -104,6 +104,8 @@ function setDoc(pid: string, d: DocState) {
 
 let ws: WebSocket | null = null;
 let started = false;
+let lastMsgAt = 0;
+const resyncAt = new Map<string, number>();
 let retryMs = 1000;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 const subscribed = new Set<string>();
@@ -123,6 +125,7 @@ function connect() {
 
   sock.onopen = () => {
     retryMs = 1000;
+    lastMsgAt = Date.now();
     const { clientId, role, name } = useSettings.getState();
     send({ t: 'hello', clientId, role: role ?? 'field', name: name || 'Unknown' });
     // Catch up every job cached on this device, not just the open ones: a cached copy can be
@@ -133,15 +136,25 @@ function connect() {
     flushOutbox();
   };
   sock.onmessage = (e) => {
+    lastMsgAt = Date.now();
     try { onServer(JSON.parse(String(e.data)) as ServerMsg); } catch (err) { console.warn('[sync] bad msg', err); }
   };
   sock.onerror = () => { /* onclose follows */ };
   sock.onclose = () => {
-    if (ws === sock) ws = null;
+    if (ws !== sock && ws !== null) return; // an old socket we already replaced
+    ws = null;
     useSync.setState({ status: 'offline', presence: {} });
     retryTimer = setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, 8000);
   };
+}
+
+/** Abandon a socket that has gone silent and let connect() open a fresh one. */
+function dropSocket() {
+  const dead = ws;
+  ws = null;
+  useSync.setState({ status: 'offline', presence: {} });
+  try { dead?.close(); } catch { /* already gone */ }
 }
 
 function flushOutbox() {
@@ -209,7 +222,20 @@ function onOps(pid: string, ops: SeqOp[]) {
       send({ t: 'subscribe', projectId: pid, sinceSeq: seq });
       break;
     }
-    try { confirmed = applyOp(confirmed, op); } catch (e) { console.warn('[sync] server op failed locally', op.type, e); }
+    try {
+      confirmed = applyOp(confirmed, op);
+    } catch (e) {
+      // Our copy has drifted from the server's. Rebuild this job from the full log
+      // (at most every 30 s) instead of carrying on with a stale view.
+      console.warn('[sync] server op failed locally, resyncing', op.type, e);
+      if (Date.now() - (resyncAt.get(pid) ?? 0) > 30_000) {
+        resyncAt.set(pid, Date.now());
+        const r0 = recompute(null, pending);
+        setDoc(pid, { confirmed: null, seq: 0, pending: r0.pending, view: r0.view ?? d.view });
+        send({ t: 'subscribe', projectId: pid, sinceSeq: 0 });
+        return;
+      }
+    }
     seq = op.serverSeq;
   }
   const r = recompute(confirmed, pending);
@@ -236,7 +262,18 @@ export function startSync() {
   if (started) return;
   started = true;
   connect();
-  AppState.addEventListener('change', (s) => { if (s === 'active') connect(); });
+  // Coming back from the background, iOS can leave a socket that looks open but is dead.
+  AppState.addEventListener('change', (s) => {
+    if (s !== 'active') return;
+    if (ws && Date.now() - lastMsgAt > 10_000) dropSocket();
+    connect();
+  });
+  // Heartbeat: the server answers every ping, so silence means the socket is dead.
+  setInterval(() => {
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - lastMsgAt > 25_000) { dropSocket(); connect(); return; }
+    send({ t: 'ping' });
+  }, 8_000);
 }
 
 /** Reconnect with fresh hello (e.g. after the role changes). */

@@ -30,7 +30,9 @@ export type ClientMsg =
   | { t: 'ops'; ops: Op[] }
   | { t: 'presence'; presence: Omit<Presence, 'at' | 'clientId'> }
   /** Erase deleted jobs for good (field only; only jobs already deleted). */
-  | { t: 'purge'; projectIds: string[] };
+  | { t: 'purge'; projectIds: string[] }
+  /** App-level heartbeat so a phone can tell a live socket from a dead one. */
+  | { t: 'ping' };
 
 export type ServerMsg =
   | { t: 'welcome'; serverTime: number }
@@ -38,4 +40,5 @@ export type ServerMsg =
   | { t: 'ops'; projectId: string; ops: SeqOp[] }
   | { t: 'reject'; opId: string; reason: string }
   | { t: 'presence'; presence: Presence }
-  | { t: 'presenceGone'; clientId: string; projectId: string };
+  | { t: 'presenceGone'; clientId: string; projectId: string }
+  | { t: 'pong' };

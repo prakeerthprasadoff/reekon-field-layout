@@ -135,6 +135,9 @@ function handle(c: Client, msg: ClientMsg) {
     case 'ops':
       if (Array.isArray(msg.ops)) handleOps(c, msg.ops);
       break;
+    case 'ping':
+      send(c, { t: 'pong' });
+      break;
     case 'purge': {
       if (c.role !== 'field' || !Array.isArray(msg.projectIds)) break;
       let n = 0;

@@ -82,6 +82,28 @@ export default function FieldSpace() {
   const rs = useMemo(() => (space?.shape?.edges.length ? resolveShape(space.shape, space.measurements) : null), [space]);
   const openFlags = useMemo(() => (space ? Object.values(space.flags).filter((f) => f.status === 'open') : []), [space]);
   const status = useMemo(() => (space ? spaceStatus(space) : null), [space]);
+
+  // A new office flag must be impossible to miss: buzz, say it, and aim at the flagged item
+  // (unless she's mid-drawing), even if she had deselected everything.
+  const seenFlags = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!space) return;
+    const ids = openFlags.map((f) => f.id);
+    if (seenFlags.current === null) { seenFlags.current = new Set(ids); return; } // first load: no alert
+    const fresh = openFlags.filter((f) => !seenFlags.current!.has(f.id));
+    seenFlags.current = new Set(ids);
+    if (!fresh.length) return;
+    const f = fresh[0];
+    const what = targetLabel(space, f.target);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    if (speak) { Speech.stop(); Speech.speak(`Office flagged ${what}. Please re-measure.`, { rate: 1.05 }); }
+    setToast(`⚑ ${f.raisedBy} flagged ${what}`);
+    if (mode !== 'draw' && mode !== 'trace') {
+      setMode('measure'); setPlacing(null); setEditing(false); setPaused(false);
+      setArmed(f.target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openFlags]);
   // The moment a space checks out (all measured, walls meet, no flags), say so once.
   const wasReady = useRef<boolean | null>(null);
   useEffect(() => {
@@ -530,9 +552,16 @@ export default function FieldSpace() {
           onLabelLongPress={(t) => { setArmed(t); setMode('measure'); setPlacing(null); setEditing(true); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); }}
         />
 
-        {openFlags.length > 0 && mode === 'measure' ? (
-          <Pressable style={styles.flagBanner} onPress={() => setArmed(openFlags[0].target)} accessibilityRole="button">
-            <Text style={[type.label, { color: color.onDanger }]}>⚑ {openFlags.length} flag{openFlags.length > 1 ? 's' : ''} from office · re-measure</Text>
+        {openFlags.length > 0 && mode !== 'draw' && mode !== 'trace' ? (
+          <Pressable
+            style={styles.flagBanner}
+            onPress={() => { setMode('measure'); setPlacing(null); setEditing(false); setArmed(openFlags[0].target); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Office flagged ${targetLabel(space, openFlags[0].target)}. Tap to re-measure.`}
+          >
+            <Text style={[type.label, { color: color.onDanger }]} numberOfLines={2}>
+              ⚑ Office flagged {targetLabel(space, openFlags[0].target)}{openFlags.length > 1 ? ` +${openFlags.length - 1} more` : ''} · tap to re-measure
+            </Text>
           </Pressable>
         ) : null}
 
