@@ -28,7 +28,7 @@ The app finds the server by itself: it uses Metro's host, port 8787. Use one pho
 **Dana (gloves, sun, rain, one free hand):**
 - 56 pt touch targets.
 - In the wall view, dragging works anywhere, not just on the item.
-- The draw crosshair sits above her fingertip, with snapping to the grid and to square.
+- When drawing corners, the cursor appears above her finger so her glove doesn't hide it, and corners snap to a 1 ft grid and to right angles.
 - Colors tuned for sunlight: dark slate on near-white, safety orange for "act here", no light-grey text.
 - A haptic and optional voice confirm each reading, and the screen stays awake, so she can measure without watching the phone.
 - Edits apply locally and sync from an outbox, so a dead zone loses nothing.
