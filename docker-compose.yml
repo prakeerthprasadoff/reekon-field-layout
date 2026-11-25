@@ -1,0 +1,12 @@
+services:
+  sync:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8787:8787"
+    volumes:
+      - sync-data:/data
+    restart: unless-stopped
+volumes:
+  sync-data:
