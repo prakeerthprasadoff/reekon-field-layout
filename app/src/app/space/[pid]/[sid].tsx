@@ -52,6 +52,9 @@ export default function FieldSpace() {
 
   const [mode, setMode] = useState<Mode>(start === 'draw' ? 'draw' : start === 'trace' ? 'trace' : 'measure');
   const [armed, setArmed] = useState<Target | null>(null);
+  // Dana tapped empty space: nothing is aimed and the app waits for her next pick
+  // (tape readings go to the tray meanwhile) instead of re-aiming on its own.
+  const [paused, setPaused] = useState(false);
   const [tray, setTray] = useState<Reading[]>([]);
   const [snack, setSnack] = useState<{ mid: string; text: string; reading: Reading; target: Target } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -90,12 +93,15 @@ export default function FieldSpace() {
     wasReady.current = status.ready;
   }, [status, speak]);
 
-  // Keep the armed target valid; auto-arm the next unmeasured thing when idle in measure mode.
+  // Keep the armed target valid; auto-arm the next unmeasured thing, unless Dana deselected.
   useEffect(() => {
     if (!space || mode !== 'measure') return;
     if (armed && targets.some((t) => sameTarget(t.target, armed))) return;
+    if (paused && !armed) return;
     setArmed(nextTarget(space));
-  }, [space, targets, armed, mode]);
+  }, [space, targets, armed, mode, paused]);
+  // Any new selection ends the pause.
+  useEffect(() => { if (armed) setPaused(false); }, [armed]);
 
   useEffect(() => { if (pid && sid) sendPresence(pid, sid, mode === 'measure' ? armed : null); }, [pid, sid, armed, mode]);
   useEffect(() => () => { if (pid) sendPresence(pid, null, null); }, [pid]);
@@ -424,6 +430,11 @@ export default function FieldSpace() {
     if (mode === 'measure') {
       const e = nearestEdge(p, 28);
       if (e) onLabelPress({ kind: 'edge', refId: e.id });
+      else if (armed) {
+        // Tap on empty space: deselect and wait for the next pick.
+        setArmed(null); setPaused(true); setEditing(false);
+        Haptics.selectionAsync();
+      }
     }
   };
 
@@ -617,7 +628,7 @@ export default function FieldSpace() {
               <View style={styles.stepper}>
                 <Btn label="◀" variant="ghost" onPress={() => step(-1)} accessibilityLabel="Previous item" style={styles.stepBtn} />
                 <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={[type.title, { textAlign: 'center' }]} numberOfLines={1}>{armedInfo?.label ?? 'Everything measured'}</Text>
+                  <Text style={[type.title, { textAlign: 'center' }]} numberOfLines={1}>{armedInfo?.label ?? (paused ? 'Nothing selected' : 'Everything measured')}</Text>
                   {!armedFlag && armed?.kind === 'feature' && space.features[armed.refId] && 'edgeId' in space.features[armed.refId].anchor ? (
                     <Text style={type.small}>Drag ⟷ to slide it, or open Wall view</Text>
                   ) : null}
@@ -632,6 +643,8 @@ export default function FieldSpace() {
                   ) : (
                     <Text style={[type.title, { color: color.accent }]}>{armedFlag ? 'Office asked: measure again' : 'Measure this'}</Text>
                   )
+                ) : paused ? (
+                  <Text style={[type.body, { color: color.fgMuted }]}>Tap a wall or item to measure it</Text>
                 ) : <Text style={[type.title, { color: color.ok }]}>All done</Text>}
                 {armedMeasurement ? <Text style={type.small}>{armedFlag ? `Current ${armedMeasurement.raw} · ` : ''}{sourceLabel(armedMeasurement.source)} · {armedMeasurement.takenBy} · {timeAgo(armedMeasurement.takenAt)}</Text> : null}
               </View>
